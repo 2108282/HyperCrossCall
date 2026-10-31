@@ -64,8 +64,8 @@ object MirrorCallHook : YukiBaseHooker() {
                 method { name = "fill" }.hook {
                     before {
                         try {
-                            val osField = instanceClass.getField("os")
-                            osField.set(instance, "AndroidPad")
+                            val osField = instance?.javaClass?.getField("os")
+                            osField?.set(instance, "AndroidPad")
                             YLog.info(msg = "HandshakeMessage.fill: successfully disguised os as AndroidPad", tag = TAG)
                         } catch (_: Throwable) {}
                     }

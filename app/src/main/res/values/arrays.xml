@@ -1,8 +1,9 @@
 <resources>
     <string-array name="xposed_scope">
         <item>com.xiaomi.hypercrosscall</item>
-        <item>com.xiaomi.mirror</item>
+        <item>com.xiaomi.mi_connect_service</item>
         <item>com.milink.service</item>
+        <item>com.xiaomi.mirror</item>
         <item>android</item>
     </string-array>
 </resources>

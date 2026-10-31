@@ -1,6 +1,5 @@
 package com.xiaomi.hypercrosscall.hook
 
-import android.service.notification.StatusBarNotification
 import com.highcapable.yukihookapi.hook.entity.YukiBaseHooker
 import com.highcapable.yukihookapi.hook.factory.method
 import com.highcapable.yukihookapi.hook.log.YLog
@@ -14,7 +13,32 @@ object MilinkCallHook : YukiBaseHooker() {
 
         val appClassLoader = appClassLoader ?: return
 
-        // 1. Hook 接收端设备订阅白名单：无条件放行任意主机的通知流转请求
+        // -------------------------------------------------------------
+        // 核心解封 1: 解决「跨设备通知」搜索页面搜不到另一台手机的问题 (正在发现您的手机)
+        // -------------------------------------------------------------
+        try {
+            "com.xiaomi.dist.notification.discover.LyraDiscover".toClass(appClassLoader).apply {
+                // 强制让所有附近设备通过 cast 投屏能力校验
+                method { name = "isCastServiceSupport" }.hook {
+                    replaceToTrue()
+                }
+
+                // 拦截 addOrUpdateDevice，绕过复杂的 bit 掩码校验，直接放行发现手机
+                method { name = "addOrUpdateDevice" }.hook {
+                    before {
+                        val trustedDeviceInfo = args[0] ?: return@before
+                        YLog.info(msg = "LyraDiscover.addOrUpdateDevice intercepted: $trustedDeviceInfo", tag = TAG)
+                    }
+                }
+            }
+            YLog.info(msg = "LyraDiscover hooked for device discovery!", tag = TAG)
+        } catch (e: Throwable) {
+            YLog.error(msg = "Failed to hook LyraDiscover: ${e.message}", tag = TAG)
+        }
+
+        // -------------------------------------------------------------
+        // 核心解封 2: 解除设备白名单拦截 (允许接收该设备的通知与流转)
+        // -------------------------------------------------------------
         try {
             "com.xiaomi.dist.notification.common.sub.SubscriptionManager".toClass(appClassLoader).apply {
                 method { name = "getSubDeviceApp" }.hook {
@@ -35,21 +59,16 @@ object MilinkCallHook : YukiBaseHooker() {
                     }
                 }
             }
-            YLog.info(msg = "SubscriptionManager.getSubDeviceApp hooked", tag = TAG)
-        } catch (e: Throwable) {
-            YLog.error(msg = "Failed to hook SubscriptionManager: ${e.message}", tag = TAG)
-        }
+        } catch (_: Throwable) {}
 
-        // 2. 解除 DeviceSubInfo 开关限制，强制为已开启 (1)
+        // 解除 DeviceSubInfo 状态限制
         try {
             "com.xiaomi.dist.notification.common.data.DeviceSubInfo".toClass(appClassLoader).apply {
-                method { name = "getDeviceSwitch" }.hook {
-                    replaceTo(1)
-                }
+                method { name = "getDeviceSwitch" }.hook { replaceTo(1) }
             }
         } catch (_: Throwable) {}
 
-        // 3. 解除 VoipTransHelper 的白名单拦截
+        // 解除 VoipTransHelper 白名单
         try {
             "com.xiaomi.dist.notification.listener.voip.VoipTransHelper".toClass(appClassLoader).apply {
                 method { name = "isLocalVoipSupported" }.hook { replaceToTrue() }
@@ -57,31 +76,23 @@ object MilinkCallHook : YukiBaseHooker() {
                 method { name = "isCallRelaySwitchOn" }.hook { replaceToTrue() }
                 method { name = "isVoipSupported" }.hook { replaceToTrue() }
             }
-            YLog.info(msg = "VoipTransHelper hooked to true", tag = TAG)
-        } catch (e: Throwable) {
-            YLog.error(msg = "Failed to hook VoipTransHelper: ${e.message}", tag = TAG)
-        }
+        } catch (_: Throwable) {}
 
-        // 4. 解除 AppNotificationFilter.filterCall 的电话通知拦截
+        // 解除来电通知丢弃
         try {
             "com.xiaomi.dist.notification.listener.handle.AppNotificationFilter".toClass(appClassLoader).apply {
                 method { name = "filterCall" }.hook { replaceToFalse() }
             }
         } catch (_: Throwable) {}
 
-        // 5. 关键：解除 CallHfpHandler 硬件属性拦截，让来电通知能够正常流转
+        // 解除 CallHfpHandler 硬件限制
         try {
             "com.xiaomi.dist.notification.handler.handler.CallHfpHandler".toClass(appClassLoader).apply {
-                method { name = "isSupportCall" }.hook {
-                    replaceToTrue()
-                }
+                method { name = "isSupportCall" }.hook { replaceToTrue() }
             }
-            YLog.info(msg = "CallHfpHandler.isSupportCall hooked to true", tag = TAG)
-        } catch (e: Throwable) {
-            YLog.error(msg = "Failed to hook CallHfpHandler: ${e.message}", tag = TAG)
-        }
+        } catch (_: Throwable) {}
 
-        // 6. 接收端收到来电通知时，直接调用 showNotification 弹出原生通知卡片
+        // 强行弹出来电通知
         try {
             "com.xiaomi.dist.notification.handler.NotificationPresenter".toClass(appClassLoader).apply {
                 method { name = "handlerNotification" }.hook {
@@ -97,9 +108,6 @@ object MilinkCallHook : YukiBaseHooker() {
                     }
                 }
             }
-            YLog.info(msg = "NotificationPresenter.handlerNotification hooked", tag = TAG)
-        } catch (e: Throwable) {
-            YLog.error(msg = "Failed to hook NotificationPresenter: ${e.message}", tag = TAG)
-        }
+        } catch (_: Throwable) {}
     }
 }

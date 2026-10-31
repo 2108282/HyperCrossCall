@@ -15,9 +15,8 @@ class MainActivity : AppCompatActivity() {
     companion object {
         const val PREFS_NAME = "hyper_cross_call_settings"
         const val KEY_WORK_MODE = "work_mode"
-        const val MODE_BIDIRECTIONAL = 0 // 双端自适应对等模式
-        const val MODE_SINGLE_SINK = 1   // 副机单端伪装模式 (免改主机)
-        const val MODE_SINGLE_SOURCE = 2 // 仅主机模式
+        const val MODE_BIDIRECTIONAL = 0 // 模式一：双端自适应对等互联 (推荐)
+        const val MODE_SINGLE_SINK = 1   // 模式二：副机单端接听 (免改主力机)
 
         const val KEY_EARPIECE = "force_earpiece"
         const val KEY_PROXIMITY = "proximity_lock"
@@ -51,24 +50,23 @@ class MainActivity : AppCompatActivity() {
 
         tvDeviceInfo.text = "当前宿主: ${Build.MANUFACTURER} ${Build.MODEL} (Android ${Build.VERSION.RELEASE}, API ${Build.VERSION.SDK_INT})"
 
-        // 模式切换
+        // 模式切换 (二选一)
         val rgWorkMode = findViewById<RadioGroup>(R.id.rg_work_mode)
         val rbBidi = findViewById<RadioButton>(R.id.rb_mode_bidirectional)
         val rbSink = findViewById<RadioButton>(R.id.rb_mode_single_sink)
-        val rbSource = findViewById<RadioButton>(R.id.rb_mode_single_source)
 
         val currentMode = prefs.getInt(KEY_WORK_MODE, MODE_BIDIRECTIONAL)
-        when (currentMode) {
-            MODE_SINGLE_SINK -> rbSink.isChecked = true
-            MODE_SINGLE_SOURCE -> rbSource.isChecked = true
-            else -> rbBidi.isChecked = true
+        if (currentMode == MODE_SINGLE_SINK) {
+            rbSink.isChecked = true
+        } else {
+            rbBidi.isChecked = true
         }
 
         rgWorkMode.setOnCheckedChangeListener { _, checkedId ->
-            val mode = when (checkedId) {
-                R.id.rb_mode_single_sink -> MODE_SINGLE_SINK
-                R.id.rb_mode_single_source -> MODE_SINGLE_SOURCE
-                else -> MODE_BIDIRECTIONAL
+            val mode = if (checkedId == R.id.rb_mode_single_sink) {
+                MODE_SINGLE_SINK
+            } else {
+                MODE_BIDIRECTIONAL
             }
             prefs.edit().putInt(KEY_WORK_MODE, mode).apply()
         }

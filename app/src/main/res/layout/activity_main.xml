@@ -98,7 +98,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="工作模式选择"
+                android:text="互联模式 (二选一)"
                 android:textColor="@color/text_secondary"
                 android:textSize="12sp"
                 android:textStyle="bold" />
@@ -115,25 +115,22 @@
                     android:layout_height="wrap_content"
                     android:checked="true"
                     android:paddingVertical="8dp"
-                    android:text="【模式一】双端对等互联 (推荐)\n两台手机均安装本模块，支持双向无缝流转与主从角色自适应"
+                    android:text="【模式一】双端对等互联 (推荐)\n两台手机均安装本模块。双向互为主从，A 来电 B 能接，B 来电 A 也能接，体验最完整。"
                     android:textColor="@color/text_primary"
                     android:textSize="14sp" />
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginVertical="6dp"
+                    android:background="#E5E5EA" />
 
                 <RadioButton
                     android:id="@+id/rb_mode_single_sink"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:paddingVertical="8dp"
-                    android:text="【模式二】副机单端接收模式 (免改主机)\n仅在此副机上开启，向主机伪装为平板。主机无需Root或安装模块！"
-                    android:textColor="@color/text_primary"
-                    android:textSize="14sp" />
-
-                <RadioButton
-                    android:id="@+id/rb_mode_single_source"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:paddingVertical="8dp"
-                    android:text="【模式三】仅主机模式\n仅作为插卡来电发射机，向对端流转通话"
+                    android:text="【模式二】副机单端接听 (免改主力机)\n只在接听副机上开启！副机向主机伪装为官方平板。主力机无需解 BL 锁、无需 Root、不用装模块，适合主力机有银行/企业安全限制的场景。"
                     android:textColor="@color/text_primary"
                     android:textSize="14sp" />
             </RadioGroup>
@@ -163,7 +160,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
                 android:checked="true"
-                android:text="强制物理听筒输出 (TYPE_BUILTIN_EARPIECE)\n关闭免提外放，声音直接送入顶部听筒"
+                android:text="强制物理听筒输出 (TYPE_BUILTIN_EARPIECE)\n关闭免提扬声器，通话音频直接送入顶部听筒"
                 android:textColor="@color/text_primary" />
 
             <View

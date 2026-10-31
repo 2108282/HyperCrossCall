@@ -1,6 +1,5 @@
 package com.xiaomi.hypercrosscall.hook
 
-import android.os.Bundle
 import android.service.notification.StatusBarNotification
 import com.highcapable.yukihookapi.hook.entity.YukiBaseHooker
 import com.highcapable.yukihookapi.hook.factory.method
@@ -15,60 +14,61 @@ object MilinkCallHook : YukiBaseHooker() {
 
         val appClassLoader = appClassLoader ?: return
 
-        // 1. 解除 VoipTransHelper 的白名单拦截 (强制让本地与远端支持通话流转)
+        // 1. 解除 VoipTransHelper 的白名单拦截
         try {
             "com.xiaomi.dist.notification.listener.voip.VoipTransHelper".toClass(appClassLoader).apply {
-                method { name = "isLocalVoipSupported" }.hook {
-                    replaceToTrue()
-                }
-                method { name = "isRemoteVoipSupported" }.hook {
-                    replaceToTrue()
-                }
-                method { name = "isCallRelaySwitchOn" }.hook {
-                    replaceToTrue()
-                }
-                method { name = "isVoipSupported" }.hook {
-                    replaceToTrue()
-                }
+                method { name = "isLocalVoipSupported" }.hook { replaceToTrue() }
+                method { name = "isRemoteVoipSupported" }.hook { replaceToTrue() }
+                method { name = "isCallRelaySwitchOn" }.hook { replaceToTrue() }
+                method { name = "isVoipSupported" }.hook { replaceToTrue() }
             }
             YLog.info(msg = "VoipTransHelper methods hooked to true", tag = TAG)
         } catch (e: Throwable) {
             YLog.error(msg = "Failed to hook VoipTransHelper: ${e.message}", tag = TAG)
         }
 
-        // 2. 解除 AppNotificationFilter.filterCall 的电话通知拦截 (绝不丢弃 call 类别)
+        // 2. 解除 AppNotificationFilter.filterCall 的电话通知拦截
         try {
             "com.xiaomi.dist.notification.listener.handle.AppNotificationFilter".toClass(appClassLoader).apply {
-                method { name = "filterCall" }.hook {
-                    replaceToFalse() // 返回 false 表示不丢弃、正常转发！
-                }
+                method { name = "filterCall" }.hook { replaceToFalse() }
             }
             YLog.info(msg = "AppNotificationFilter.filterCall hooked to false", tag = TAG)
         } catch (e: Throwable) {
             YLog.error(msg = "Failed to hook AppNotificationFilter: ${e.message}", tag = TAG)
         }
 
-        // 3. 关键：解除 NotificationHandler 必须要求【主机息屏锁屏】才转发的限制！
-        // 允许主机即使在亮屏操作时，也向副机正常推送来电通知与灵动岛胶囊
+        // 3. 关键：解除 NotificationPresenter 对来电的属性拦截，强制展示来电通知！
         try {
-            "com.xiaomi.dist.notification.listener.handle.NotificationHandler".toClass(appClassLoader).apply {
-                method { name = "isNotificationValid" }.hook {
-                    before {
-                        val sbn = args[0] as? StatusBarNotification ?: return@before
-                        val category = sbn.notification?.category
-                        val pkg = sbn.packageName
+            "com.xiaomi.dist.notification.handler.handler.CallHfpHandler".toClass(appClassLoader).apply {
+                method { name = "isSupportCall" }.hook {
+                    replaceToTrue()
+                }
+            }
+            YLog.info(msg = "CallHfpHandler.isSupportCall hooked to true", tag = TAG)
+        } catch (e: Throwable) {
+            YLog.error(msg = "Failed to hook CallHfpHandler: ${e.message}", tag = TAG)
+        }
 
-                        // 如果是来电通知 (com.android.incallui / category == "call")，直接强制放行
-                        if ("com.android.incallui" == pkg || "call" == category) {
-                            YLog.info(msg = "Incoming call notification intercepted, force allowing trans!", tag = TAG)
-                            result = true
+        // 4. 当副机 NotificationPresenter 收到来电时，即使 Hfp 不走，也强制调用 showNotification 弹出通知卡片
+        try {
+            "com.xiaomi.dist.notification.handler.NotificationPresenter".toClass(appClassLoader).apply {
+                method { name = "handlerNotification" }.hook {
+                    before {
+                        val notifData = args[0] ?: return@before
+                        YLog.info(msg = "NotificationPresenter.handlerNotification called: $notifData", tag = TAG)
+                        // 直接调用 showNotification 弹窗，防止被任何前置 handler 吞掉
+                        try {
+                            instanceClass.getMethod("showNotification", notifData.javaClass).invoke(instance, notifData)
+                            YLog.info(msg = "Force invoked showNotification for incoming call!", tag = TAG)
+                        } catch (err: Throwable) {
+                            YLog.warn(msg = "Fallback showNotification reflection: ${err.message}", tag = TAG)
                         }
                     }
                 }
             }
-            YLog.info(msg = "NotificationHandler.isNotificationValid hooked for call category", tag = TAG)
+            YLog.info(msg = "NotificationPresenter.handlerNotification hooked", tag = TAG)
         } catch (e: Throwable) {
-            YLog.error(msg = "Failed to hook NotificationHandler: ${e.message}", tag = TAG)
+            YLog.error(msg = "Failed to hook NotificationPresenter: ${e.message}", tag = TAG)
         }
     }
 }

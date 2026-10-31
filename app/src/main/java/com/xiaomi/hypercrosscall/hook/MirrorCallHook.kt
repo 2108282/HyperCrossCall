@@ -25,13 +25,11 @@ object MirrorCallHook : YukiBaseHooker() {
 
         var mirrorCallServiceClassName: String? = null
         var callAudioMgrClassName: String? = null
-        var remoteDeviceInfoClassName: String? = null
 
         // 利用 DexKit 动态定位混淆类名
         try {
             System.loadLibrary("dexkit")
             DexKitBridge.create(apkPath)?.use { bridge ->
-                // 1. 定位 MirrorCallService
                 val callServiceList = bridge.findClass {
                     searchPackages("com.xiaomi.mirror")
                     matcher {
@@ -40,7 +38,6 @@ object MirrorCallHook : YukiBaseHooker() {
                 }
                 mirrorCallServiceClassName = callServiceList.firstOrNull()?.name
 
-                // 2. 定位 CallRelayAudioManager
                 val audioMgrList = bridge.findClass {
                     searchPackages("i2", "com.xiaomi.mirror")
                     matcher {
@@ -48,15 +45,6 @@ object MirrorCallHook : YukiBaseHooker() {
                     }
                 }
                 callAudioMgrClassName = audioMgrList.firstOrNull()?.name
-
-                // 3. 定位 RemoteDeviceInfo (用于单端伪装模式)
-                val deviceInfoList = bridge.findClass {
-                    searchPackages("com.xiaomi.mirror")
-                    matcher {
-                        usingStrings("PLATFORM_ANDROID_PAD", "PLATFORM_ANDROID_PHONE")
-                    }
-                }
-                remoteDeviceInfoClassName = deviceInfoList.firstOrNull()?.name
             }
         } catch (e: Throwable) {
             YLog.warn(msg = "DexKit search fallback to direct reflection: ${e.message}", tag = TAG)
@@ -64,12 +52,39 @@ object MirrorCallHook : YukiBaseHooker() {
 
         val targetCallService = mirrorCallServiceClassName ?: "com.xiaomi.mirror.relay.G"
         val targetAudioMgr = callAudioMgrClassName ?: "i2.B"
-        val targetDeviceInfo = remoteDeviceInfoClassName ?: "com.xiaomi.mirror.RemoteDeviceInfo"
 
         YLog.info(msg = "CallService: $targetCallService, AudioMgr: $targetAudioMgr", tag = TAG)
 
         // -------------------------------------------------------------
-        // Hook 1: 无论双端还是单端，支持对端与本地主从握手放行
+        // Hook 1: 精准局部伪装 —— 仅在妙享握手和终端描述上对外宣告为 AndroidPad
+        // -------------------------------------------------------------
+        try {
+            // 握手包对外发送时将 os 设为 AndroidPad，主力机便会识别为平板并放行通话流转
+            "com.xiaomi.mirror.message.HandshakeMessage".toClass(appClassLoader).apply {
+                method { name = "fill" }.hook {
+                    before {
+                        try {
+                            val osField = instanceClass.getField("os")
+                            osField.set(instance, "AndroidPad")
+                            YLog.info(msg = "HandshakeMessage.fill: successfully disguised os as AndroidPad", tag = TAG)
+                        } catch (_: Throwable) {}
+                    }
+                }
+            }
+
+            // RemoteDeviceInfo 对外提供平台名称时返回 AndroidPad
+            "com.xiaomi.mirror.RemoteDeviceInfo".toClass(appClassLoader).apply {
+                method { name = "getPlatform" }.hook {
+                    replaceTo("AndroidPad")
+                }
+            }
+            YLog.info(msg = "Hooked HandshakeMessage & RemoteDeviceInfo to AndroidPad", tag = TAG)
+        } catch (e: Throwable) {
+            YLog.error(msg = "Failed to hook handshake disguise: ${e.message}", tag = TAG)
+        }
+
+        // -------------------------------------------------------------
+        // Hook 2: 本地通话中继接管与生命周期放行
         // -------------------------------------------------------------
         targetCallService.toClass(appClassLoader).apply {
             method {
@@ -82,16 +97,14 @@ object MirrorCallHook : YukiBaseHooker() {
                     val isOppositePhone = g0Class.method { name = "o0" }.get(g0Param).boolean()
                     YLog.info(msg = "onOppositeTerminalConnected called. oppositePhone=$isOppositePhone", tag = TAG)
 
-                    if (isOppositePhone) {
-                        YLog.info(msg = "CrossCall handshake active: opening phone-to-phone tunnel", tag = TAG)
-                        g0Class.method { name = "k0" }.hook {
-                            replaceToTrue()
-                        }
+                    // 本机始终允许与对方建立通话连接
+                    g0Class.method { name = "k0" }.hook {
+                        replaceToTrue()
                     }
                 }
             }
 
-            // 接听瞬间音频输出重定向 & 贴耳熄屏
+            // 接听瞬间音频输出重定向到机身听筒 & 激活贴耳灭屏
             method {
                 name = "C"
             }.hook {
@@ -104,7 +117,7 @@ object MirrorCallHook : YukiBaseHooker() {
                 }
             }
 
-            // 挂断释放
+            // 通话挂断后释放
             method {
                 name = "B"
             }.hook {
@@ -116,7 +129,7 @@ object MirrorCallHook : YukiBaseHooker() {
         }
 
         // -------------------------------------------------------------
-        // Hook 2: 从机强制启用 Pad AudioSink 协议
+        // Hook 3: 副机以从机 (AudioSink) 模式运行，准备接收通话音频
         // -------------------------------------------------------------
         try {
             val audioMgrClass = targetAudioMgr.toClass(appClassLoader)
@@ -125,8 +138,8 @@ object MirrorCallHook : YukiBaseHooker() {
                     try {
                         val fieldD = audioMgrClass.getDeclaredField("d")
                         fieldD.isAccessible = true
-                        fieldD.setBoolean(instance, false)
-                        YLog.info(msg = "Overridden CallRelayAudioManager field 'd' to false (Pad Mode)", tag = TAG)
+                        fieldD.setBoolean(instance, false) // false 即以平板从机模式启动 AudioSink
+                        YLog.info(msg = "CallRelayAudioManager field 'd' forced to false (AudioSink ready)", tag = TAG)
                     } catch (e: Throwable) {
                         YLog.error(msg = "Failed to override field 'd': ${e.message}", tag = TAG)
                     }
@@ -135,22 +148,6 @@ object MirrorCallHook : YukiBaseHooker() {
         } catch (e: Throwable) {
             YLog.error(msg = "Failed to hook AudioMgr constructor: ${e.message}", tag = TAG)
         }
-
-        // -------------------------------------------------------------
-        // Hook 3: 单端伪装能力支持 (向对端广播自身为 PAD，实现免改主机)
-        // -------------------------------------------------------------
-        try {
-            targetDeviceInfo.toClass(appClassLoader).apply {
-                method {
-                    name = "getPlatform"
-                }.hook {
-                    after {
-                        // 如果对端请求本设备平台类型，支持动态回传 PAD
-                        YLog.info(msg = "RemoteDeviceInfo.getPlatform called", tag = TAG)
-                    }
-                }
-            }
-        } catch (_: Throwable) {}
     }
 
     private fun routeAudioToEarpiece(context: Context) {

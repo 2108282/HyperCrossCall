@@ -1,5 +1,6 @@
 package com.xiaomi.hypercrosscall.hook
 
+import android.os.Handler
 import com.highcapable.yukihookapi.hook.entity.YukiBaseHooker
 import com.highcapable.yukihookapi.hook.factory.method
 import com.highcapable.yukihookapi.hook.log.YLog
@@ -14,24 +15,74 @@ object MilinkCallHook : YukiBaseHooker() {
         val appClassLoader = appClassLoader ?: return
 
         // -------------------------------------------------------------
-        // 核心解封 1: 解决「跨设备通知」搜索页面搜不到另一台手机的问题 (正在发现您的手机)
+        // 核心解封 1: 彻底打通「跨设备通知」设置页面的手机扫描与发现！
         // -------------------------------------------------------------
         try {
             "com.xiaomi.dist.notification.discover.LyraDiscover".toClass(appClassLoader).apply {
-                // 强制让所有附近设备通过 cast 投屏能力校验
+                // 1. 破解 startDiscovery 入口阻断：允许手机端正常注册底层扫描监听器
+                method { name = "isLocalServiceDataSupport" }.hook {
+                    replaceToTrue()
+                }
+
+                // 2. 破解投屏能力校验：无需支持 cast 即可被发现
                 method { name = "isCastServiceSupport" }.hook {
                     replaceToTrue()
                 }
 
-                // 拦截 addOrUpdateDevice，绕过复杂的 bit 掩码校验，直接放行发现手机
+                // 3. 拦截 addOrUpdateDevice：扫到任何信任设备，无视掩码直接加入发现列表并通知界面！
                 method { name = "addOrUpdateDevice" }.hook {
                     before {
                         val trustedDeviceInfo = args[0] ?: return@before
-                        YLog.info(msg = "LyraDiscover.addOrUpdateDevice intercepted: $trustedDeviceInfo", tag = TAG)
+                        try {
+                            val getDeviceIdMethod = trustedDeviceInfo.javaClass.getMethod("getDeviceId")
+                            val deviceId = getDeviceIdMethod.invoke(trustedDeviceInfo) as? String ?: return@before
+
+                            val getDeviceNameMethod = try {
+                                trustedDeviceInfo.javaClass.getMethod("getDeviceName")
+                            } catch (_: Throwable) { null }
+                            val deviceName = getDeviceNameMethod?.invoke(trustedDeviceInfo) as? String ?: "小米手机"
+
+                            val getDeviceTypeMethod = trustedDeviceInfo.javaClass.getMethod("getDeviceType")
+                            val deviceType = getDeviceTypeMethod.invoke(trustedDeviceInfo) as? Int ?: 1
+
+                            // 反射构造 NotifiDevice
+                            val notifiDeviceClass = "com.xiaomi.dist.notification.discover.NotifiDevice".toClass(appClassLoader)
+                            val notifiDevice = notifiDeviceClass.getConstructor(String::class.java, Boolean::class.javaPrimitiveType)
+                                .newInstance(deviceId, true)
+
+                            notifiDeviceClass.getMethod("setMarketName", String::class.java).invoke(notifiDevice, deviceName)
+                            notifiDeviceClass.getMethod("setDeviceType", Int::class.javaPrimitiveType).invoke(notifiDevice, deviceType)
+
+                            // 获取 LyraDiscover 实例的内部字段
+                            val listenerField = instanceClass?.getDeclaredField("mLyraDeviceListener")?.apply { isAccessible = true }
+                            val lyraListener = listenerField?.get(instance)
+
+                            val handlerField = instanceClass?.getDeclaredField("mHandler")?.apply { isAccessible = true }
+                            val handler = handlerField?.get(instance) as? Handler
+
+                            val devicesMapField = instanceClass?.getDeclaredField("mNotifiDeivces")?.apply { isAccessible = true }
+                            val devicesMap = devicesMapField?.get(instance) as? MutableMap<String, Any>
+                            devicesMap?.put(deviceId, notifiDevice)
+
+                            // 关键：通知界面添加此设备！
+                            if (lyraListener != null && handler != null) {
+                                handler.post {
+                                    try {
+                                        lyraListener.javaClass.getMethod("onDeviceFound", notifiDeviceClass)
+                                            .invoke(lyraListener, notifiDevice)
+                                        YLog.info(msg = "Directly notified UI onDeviceFound: $deviceName ($deviceId)", tag = TAG)
+                                    } catch (e: Throwable) {
+                                        YLog.error(msg = "Failed to dispatch onDeviceFound to UI: ${e.message}", tag = TAG)
+                                    }
+                                }
+                            }
+                        } catch (e: Throwable) {
+                            YLog.error(msg = "Error in addOrUpdateDevice hook: ${e.message}", tag = TAG)
+                        }
                     }
                 }
             }
-            YLog.info(msg = "LyraDiscover hooked for device discovery!", tag = TAG)
+            YLog.info(msg = "LyraDiscover scan & UI notification pipeline completely unblocked!", tag = TAG)
         } catch (e: Throwable) {
             YLog.error(msg = "Failed to hook LyraDiscover: ${e.message}", tag = TAG)
         }
@@ -51,24 +102,19 @@ object MilinkCallHook : YukiBaseHooker() {
                                 infoClass.getMethod("setDeviceId", String::class.java).invoke(subInfo, deviceId)
                                 infoClass.getMethod("setDeviceSwitch", Int::class.javaPrimitiveType).invoke(subInfo, 1)
                                 result = subInfo
-                                YLog.info(msg = "getSubDeviceApp synthesized active DeviceSubInfo for: $deviceId", tag = TAG)
-                            } catch (e: Throwable) {
-                                YLog.warn(msg = "Failed to synthesize DeviceSubInfo: ${e.message}", tag = TAG)
-                            }
+                            } catch (_: Throwable) {}
                         }
                     }
                 }
             }
         } catch (_: Throwable) {}
 
-        // 解除 DeviceSubInfo 状态限制
         try {
             "com.xiaomi.dist.notification.common.data.DeviceSubInfo".toClass(appClassLoader).apply {
                 method { name = "getDeviceSwitch" }.hook { replaceTo(1) }
             }
         } catch (_: Throwable) {}
 
-        // 解除 VoipTransHelper 白名单
         try {
             "com.xiaomi.dist.notification.listener.voip.VoipTransHelper".toClass(appClassLoader).apply {
                 method { name = "isLocalVoipSupported" }.hook { replaceToTrue() }
@@ -78,33 +124,26 @@ object MilinkCallHook : YukiBaseHooker() {
             }
         } catch (_: Throwable) {}
 
-        // 解除来电通知丢弃
         try {
             "com.xiaomi.dist.notification.listener.handle.AppNotificationFilter".toClass(appClassLoader).apply {
                 method { name = "filterCall" }.hook { replaceToFalse() }
             }
         } catch (_: Throwable) {}
 
-        // 解除 CallHfpHandler 硬件限制
         try {
             "com.xiaomi.dist.notification.handler.handler.CallHfpHandler".toClass(appClassLoader).apply {
                 method { name = "isSupportCall" }.hook { replaceToTrue() }
             }
         } catch (_: Throwable) {}
 
-        // 强行弹出来电通知
         try {
             "com.xiaomi.dist.notification.handler.NotificationPresenter".toClass(appClassLoader).apply {
                 method { name = "handlerNotification" }.hook {
                     before {
                         val notifData = args[0] ?: return@before
-                        YLog.info(msg = "NotificationPresenter received: $notifData", tag = TAG)
                         try {
                             instance?.javaClass?.getMethod("showNotification", notifData.javaClass)?.invoke(instance, notifData)
-                            YLog.info(msg = "Forced showNotification popup on receiver!", tag = TAG)
-                        } catch (err: Throwable) {
-                            YLog.warn(msg = "Fallback showNotification invocation: ${err.message}", tag = TAG)
-                        }
+                        } catch (_: Throwable) {}
                     }
                 }
             }

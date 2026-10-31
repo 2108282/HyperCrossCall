@@ -19,7 +19,6 @@ object MilinkCallHook : YukiBaseHooker() {
             "com.xiaomi.dist.notification.common.sub.SubscriptionManager".toClass(appClassLoader).apply {
                 method { name = "getSubDeviceApp" }.hook {
                     after {
-                        // 若本地白名单未配置该设备，构造虚拟授权信息放行
                         if (result == null) {
                             val deviceId = args[0] as? String ?: return@after
                             try {
@@ -90,7 +89,7 @@ object MilinkCallHook : YukiBaseHooker() {
                         val notifData = args[0] ?: return@before
                         YLog.info(msg = "NotificationPresenter received: $notifData", tag = TAG)
                         try {
-                            instanceClass.getMethod("showNotification", notifData.javaClass).invoke(instance, notifData)
+                            instance?.javaClass?.getMethod("showNotification", notifData.javaClass)?.invoke(instance, notifData)
                             YLog.info(msg = "Forced showNotification popup on receiver!", tag = TAG)
                         } catch (err: Throwable) {
                             YLog.warn(msg = "Fallback showNotification invocation: ${err.message}", tag = TAG)

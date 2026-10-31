@@ -12,8 +12,10 @@
     <application
         android:name=".CrossCallApplication"
         android:allowBackup="false"
-        android:icon="@android:drawable/ic_menu_call"
+        android:icon="@drawable/ic_launcher"
+        android:roundIcon="@drawable/ic_launcher"
         android:label="@string/app_name"
+        android:theme="@style/Theme.AppCompat.Light.NoActionBar"
         android:supportsRtl="true">
 
         <!-- LSPosed 现代模块声明规范 -->
@@ -30,7 +32,17 @@
             android:name="xposedscope"
             android:resource="@array/xposed_scope" />
 
-        <!-- 原生 ConnectionService 通话桥接服务 (实现贴耳熄屏与系统通话仲裁) -->
+        <!-- 桌面启动主入口 Activity -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- 原生 ConnectionService 通话桥接服务 -->
         <service
             android:name=".telecom.CrossCallConnectionService"
             android:permission="android.permission.BIND_TELECOM_CONNECTION_SERVICE"

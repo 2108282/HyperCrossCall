@@ -12,8 +12,8 @@ android {
         applicationId = "com.xiaomi.hypercrosscall"
         minSdk = 31
         targetSdk = 36
-        versionCode = 100
-        versionName = "1.0.0-hyperos3"
+        versionCode = 101
+        versionName = "1.1.0-hyperos3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         
@@ -57,17 +57,12 @@ android {
 }
 
 dependencies {
-    // Xposed/LSPosed API 基类 (供 YukiHookAPI KSP 桥接代码实现 IXposedHookZygoteInit / IXposedHookLoadPackage)
     compileOnly("de.robv.android.xposed:api:82")
-
-    // YukiHookAPI
     implementation("com.highcapable.yukihookapi:api:1.2.1")
     ksp("com.highcapable.yukihookapi:ksp-xposed:1.2.1")
-
-    // DexKit 动态特征查找
     implementation("org.luckypray:dexkit:2.0.3")
 
-    // 基础支持库
+    implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.annotation:annotation:1.8.0")
 }

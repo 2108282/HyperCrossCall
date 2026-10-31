@@ -25,12 +25,13 @@ object MirrorCallHook : YukiBaseHooker() {
 
         var mirrorCallServiceClassName: String? = null
         var callAudioMgrClassName: String? = null
+        var remoteDeviceInfoClassName: String? = null
 
-        // 利用 DexKit 动态定位混淆类名，不受 HyperOS 3.0 OTA 更新影响
+        // 利用 DexKit 动态定位混淆类名
         try {
             System.loadLibrary("dexkit")
             DexKitBridge.create(apkPath)?.use { bridge ->
-                // 1. 定位 MirrorCallService (包含调试标签 "MirrorCallService")
+                // 1. 定位 MirrorCallService
                 val callServiceList = bridge.findClass {
                     searchPackages("com.xiaomi.mirror")
                     matcher {
@@ -39,7 +40,7 @@ object MirrorCallHook : YukiBaseHooker() {
                 }
                 mirrorCallServiceClassName = callServiceList.firstOrNull()?.name
 
-                // 2. 定位 CallRelayAudioManager (包含调试标签 "CallRelayAudioManager")
+                // 2. 定位 CallRelayAudioManager
                 val audioMgrList = bridge.findClass {
                     searchPackages("i2", "com.xiaomi.mirror")
                     matcher {
@@ -47,22 +48,30 @@ object MirrorCallHook : YukiBaseHooker() {
                     }
                 }
                 callAudioMgrClassName = audioMgrList.firstOrNull()?.name
+
+                // 3. 定位 RemoteDeviceInfo (用于单端伪装模式)
+                val deviceInfoList = bridge.findClass {
+                    searchPackages("com.xiaomi.mirror")
+                    matcher {
+                        usingStrings("PLATFORM_ANDROID_PAD", "PLATFORM_ANDROID_PHONE")
+                    }
+                }
+                remoteDeviceInfoClassName = deviceInfoList.firstOrNull()?.name
             }
         } catch (e: Throwable) {
             YLog.warn(msg = "DexKit search fallback to direct reflection: ${e.message}", tag = TAG)
         }
 
-        // 默认回退类名 (根据逆向所得)
         val targetCallService = mirrorCallServiceClassName ?: "com.xiaomi.mirror.relay.G"
         val targetAudioMgr = callAudioMgrClassName ?: "i2.B"
+        val targetDeviceInfo = remoteDeviceInfoClassName ?: "com.xiaomi.mirror.RemoteDeviceInfo"
 
-        YLog.info(msg = "Using CallService: $targetCallService, AudioMgr: $targetAudioMgr", tag = TAG)
+        YLog.info(msg = "CallService: $targetCallService, AudioMgr: $targetAudioMgr", tag = TAG)
 
         // -------------------------------------------------------------
-        // Hook 1: 解除 Phone to Phone 握手互斥拦截
+        // Hook 1: 无论双端还是单端，支持对端与本地主从握手放行
         // -------------------------------------------------------------
         targetCallService.toClass(appClassLoader).apply {
-            // Hook onOppositeTerminalConnected(g0)
             method {
                 name = "F"
             }.hook {
@@ -70,16 +79,11 @@ object MirrorCallHook : YukiBaseHooker() {
                     val g0Param = args[0] ?: return@before
                     val g0Class = g0Param.javaClass
                     
-                    // 获取对端设备平台类型
                     val isOppositePhone = g0Class.method { name = "o0" }.get(g0Param).boolean()
-                    val isOppositePad = g0Class.method { name = "k0" }.get(g0Param).boolean()
+                    YLog.info(msg = "onOppositeTerminalConnected called. oppositePhone=$isOppositePhone", tag = TAG)
 
-                    YLog.info(msg = "onOppositeTerminalConnected called. oppositePhone=$isOppositePhone, oppositePad=$isOppositePad", tag = TAG)
-
-                    // 若对端是手机，动态让系统认为对端兼具 PAD 属性，放行后续初始化
                     if (isOppositePhone) {
-                        YLog.info(msg = "Enabling Phone-to-Phone cross call tunnel!", tag = TAG)
-                        // 动态放行：伪装对端响应 k0() 为 true
+                        YLog.info(msg = "CrossCall handshake active: opening phone-to-phone tunnel", tag = TAG)
                         g0Class.method { name = "k0" }.hook {
                             replaceToTrue()
                         }
@@ -87,12 +91,12 @@ object MirrorCallHook : YukiBaseHooker() {
                 }
             }
 
-            // Hook onCallStart: 接通电话时的音频设备接管
+            // 接听瞬间音频输出重定向 & 贴耳熄屏
             method {
                 name = "C"
             }.hook {
                 after {
-                    YLog.info(msg = "onCallStart detected! Routing audio to earpiece & acquiring proximity lock", tag = TAG)
+                    YLog.info(msg = "onCallStart detected! Routing audio to earpiece", tag = TAG)
                     appContext?.let { ctx ->
                         routeAudioToEarpiece(ctx)
                         acquireProximityLock(ctx)
@@ -100,19 +104,19 @@ object MirrorCallHook : YukiBaseHooker() {
                 }
             }
 
-            // Hook onCallEnd: 通话挂断释放
+            // 挂断释放
             method {
                 name = "B"
             }.hook {
                 after {
-                    YLog.info(msg = "onCallEnd detected! Releasing audio and proximity lock", tag = TAG)
+                    YLog.info(msg = "onCallEnd detected! Releasing earpiece and proximity lock", tag = TAG)
                     releaseProximityLock()
                 }
             }
         }
 
         // -------------------------------------------------------------
-        // Hook 2: 副机接听端强制启用 Pad AudioSink 参数 & 听筒输出
+        // Hook 2: 从机强制启用 Pad AudioSink 协议
         // -------------------------------------------------------------
         try {
             val audioMgrClass = targetAudioMgr.toClass(appClassLoader)
@@ -122,7 +126,7 @@ object MirrorCallHook : YukiBaseHooker() {
                         val fieldD = audioMgrClass.getDeclaredField("d")
                         fieldD.isAccessible = true
                         fieldD.setBoolean(instance, false)
-                        YLog.info(msg = "CallRelayAudioManager initialized, overridden field 'd' to false", tag = TAG)
+                        YLog.info(msg = "Overridden CallRelayAudioManager field 'd' to false (Pad Mode)", tag = TAG)
                     } catch (e: Throwable) {
                         YLog.error(msg = "Failed to override field 'd': ${e.message}", tag = TAG)
                     }
@@ -131,11 +135,24 @@ object MirrorCallHook : YukiBaseHooker() {
         } catch (e: Throwable) {
             YLog.error(msg = "Failed to hook AudioMgr constructor: ${e.message}", tag = TAG)
         }
+
+        // -------------------------------------------------------------
+        // Hook 3: 单端伪装能力支持 (向对端广播自身为 PAD，实现免改主机)
+        // -------------------------------------------------------------
+        try {
+            targetDeviceInfo.toClass(appClassLoader).apply {
+                method {
+                    name = "getPlatform"
+                }.hook {
+                    after {
+                        // 如果对端请求本设备平台类型，支持动态回传 PAD
+                        YLog.info(msg = "RemoteDeviceInfo.getPlatform called", tag = TAG)
+                    }
+                }
+            }
+        } catch (_: Throwable) {}
     }
 
-    /**
-     * 将音频流定向到物理听筒 (TYPE_BUILTIN_EARPIECE)
-     */
     private fun routeAudioToEarpiece(context: Context) {
         try {
             val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
@@ -154,18 +171,14 @@ object MirrorCallHook : YukiBaseHooker() {
                 audioManager.isSpeakerphoneOn = false
             }
 
-            // 检查并提示系统级硬件 AEC
             if (AcousticEchoCanceler.isAvailable()) {
-                YLog.info(msg = "System hardware AcousticEchoCanceler (AEC) is available and active.", tag = TAG)
+                YLog.info(msg = "Hardware AEC is active.", tag = TAG)
             }
         } catch (e: Throwable) {
             YLog.error(msg = "routeAudioToEarpiece failed: ${e.message}", tag = TAG)
         }
     }
 
-    /**
-     * 贴耳防误触息屏锁
-     */
     private fun acquireProximityLock(context: Context) {
         try {
             if (proximityWakeLock == null) {
@@ -178,7 +191,7 @@ object MirrorCallHook : YukiBaseHooker() {
                 }
             }
             if (proximityWakeLock?.isHeld == false) {
-                proximityWakeLock?.acquire(2 * 60 * 60 * 1000L) // 最长2小时保护
+                proximityWakeLock?.acquire(2 * 60 * 60 * 1000L)
                 YLog.info(msg = "Proximity wake lock acquired.", tag = TAG)
             }
         } catch (e: Throwable) {

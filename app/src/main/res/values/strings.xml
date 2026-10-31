@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">HyperCrossCall</string>
+    <string name="xposed_description">解除小米手机间跨设备通话限制，启用双机通话流转与听筒/AEC原生融合</string>
+</resources>

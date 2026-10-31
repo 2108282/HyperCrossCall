@@ -1,0 +1,7 @@
+<resources>
+    <string-array name="xposed_scope">
+        <item>com.xiaomi.mirror</item>
+        <item>com.milink.service</item>
+        <item>android</item>
+    </string-array>
+</resources>

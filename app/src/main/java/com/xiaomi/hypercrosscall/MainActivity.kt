@@ -8,15 +8,15 @@ import android.widget.RadioGroup
 import android.widget.Switch
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
-import com.highcapable.yukihookapi.hook.factory.isModuleActive
+import com.highcapable.yukihookapi.YukiHookAPI
 
 class MainActivity : AppCompatActivity() {
 
     companion object {
         const val PREFS_NAME = "hyper_cross_call_settings"
         const val KEY_WORK_MODE = "work_mode"
-        const val MODE_BIDIRECTIONAL = 0 // 双端自适应
-        const val MODE_SINGLE_SINK = 1   // 副机单端伪装 (免改主机)
+        const val MODE_BIDIRECTIONAL = 0 // 双端自适应对等模式
+        const val MODE_SINGLE_SINK = 1   // 副机单端伪装模式 (免改主机)
         const val MODE_SINGLE_SOURCE = 2 // 仅主机模式
 
         const val KEY_EARPIECE = "force_earpiece"
@@ -35,11 +35,17 @@ class MainActivity : AppCompatActivity() {
         val tvStatus = findViewById<TextView>(R.id.tv_module_status)
         val tvDeviceInfo = findViewById<TextView>(R.id.tv_device_info)
 
-        if (isModuleActive) {
-            tvStatus.text = "● LSPosed 模块已激活并接管通信层"
+        val isActive = try {
+            YukiHookAPI.Status.isModuleActive
+        } catch (_: Throwable) {
+            false
+        }
+
+        if (isActive) {
+            tvStatus.text = "● LSPosed 模块已激活并生效"
             tvStatus.setTextColor(getColor(R.color.status_active))
         } else {
-            tvStatus.text = "○ 模块未在 LSPosed 中激活 (请在框架中勾选本模块)"
+            tvStatus.text = "○ 模块尚未在 LSPosed 中勾选激活"
             tvStatus.setTextColor(getColor(R.color.status_inactive))
         }
 

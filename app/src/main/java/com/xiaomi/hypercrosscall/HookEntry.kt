@@ -15,6 +15,10 @@ class HookEntry : IYukiHookXposedInit {
     }
 
     override fun onHook() = encase {
+        // 挂载自身以响应 YukiHookAPI.Status.isModuleActive 状态探测
+        loadApp("com.xiaomi.hypercrosscall") {}
+
+        // 挂载小米互联服务核心
         loadApp("com.xiaomi.mirror") {
             loadHooker(MirrorCallHook)
         }

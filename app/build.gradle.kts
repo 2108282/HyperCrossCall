@@ -12,8 +12,8 @@ android {
         applicationId = "com.xiaomi.hypercrosscall"
         minSdk = 31
         targetSdk = 36
-        versionCode = 101
-        versionName = "1.1.0-hyperos3"
+        versionCode = 102
+        versionName = "1.2.0-hyperos3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         

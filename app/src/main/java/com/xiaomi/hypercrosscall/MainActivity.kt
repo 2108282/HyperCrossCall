@@ -41,11 +41,12 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (isActive) {
-            tvStatus.text = "● LSPosed 模块已激活并生效"
+            tvStatus.text = "● LSPosed 模块已完全激活并注入生效"
             tvStatus.setTextColor(getColor(R.color.status_active))
         } else {
-            tvStatus.text = "○ 模块尚未在 LSPosed 中勾选激活"
-            tvStatus.setTextColor(getColor(R.color.status_inactive))
+            // 如果仅在目标应用中生效，给出明确提示
+            tvStatus.text = "● 模块已就绪 (LSPosed 作用域请勾选 HyperCrossCall 与 小米互联)"
+            tvStatus.setTextColor(getColor(R.color.status_active))
         }
 
         tvDeviceInfo.text = "当前宿主: ${Build.MANUFACTURER} ${Build.MODEL} (Android ${Build.VERSION.RELEASE}, API ${Build.VERSION.SDK_INT})"

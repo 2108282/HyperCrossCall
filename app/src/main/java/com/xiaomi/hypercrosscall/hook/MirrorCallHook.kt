@@ -7,6 +7,7 @@ import android.media.audiofx.AcousticEchoCanceler
 import android.os.Build
 import android.os.PowerManager
 import com.highcapable.yukihookapi.hook.entity.YukiBaseHooker
+import com.highcapable.yukihookapi.hook.factory.constructor
 import com.highcapable.yukihookapi.hook.factory.method
 import com.highcapable.yukihookapi.hook.log.YLog
 import org.luckypray.dexkit.DexKitBridge
@@ -113,16 +114,22 @@ object MirrorCallHook : YukiBaseHooker() {
         // -------------------------------------------------------------
         // Hook 2: 副机接听端强制启用 Pad AudioSink 参数 & 听筒输出
         // -------------------------------------------------------------
-        targetAudioMgr.toClass(appClassLoader).apply {
-            // Hook 构造器，确保副机在手机形态下也按从机模式配置
-            constructor().hook {
+        try {
+            val audioMgrClass = targetAudioMgr.toClass(appClassLoader)
+            audioMgrClass.constructor().hook {
                 after {
-                    // d 原本是 true ^ Build.IS_TABLET (手机上为 true)
-                    // 改为 false，使手机走从机 AudioSink 协议
-                    field { name = "d" }.get(instance).set(false)
-                    YLog.info(msg = "CallRelayAudioManager initialized, overridden isTablet field to true", tag = TAG)
+                    try {
+                        val fieldD = audioMgrClass.getDeclaredField("d")
+                        fieldD.isAccessible = true
+                        fieldD.setBoolean(instance, false)
+                        YLog.info(msg = "CallRelayAudioManager initialized, overridden field 'd' to false", tag = TAG)
+                    } catch (e: Throwable) {
+                        YLog.error(msg = "Failed to override field 'd': ${e.message}", tag = TAG)
+                    }
                 }
             }
+        } catch (e: Throwable) {
+            YLog.error(msg = "Failed to hook AudioMgr constructor: ${e.message}", tag = TAG)
         }
     }
 

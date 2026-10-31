@@ -6,12 +6,12 @@ plugins {
 
 android {
     namespace = "com.xiaomi.hypercrosscall"
-    compileSdk = 35 // Android 15/16 编译兼容
+    compileSdk = 35
     
     defaultConfig {
         applicationId = "com.xiaomi.hypercrosscall"
-        minSdk = 31 // Android 12 起
-        targetSdk = 36 // Android 16 (Baklava)
+        minSdk = 31
+        targetSdk = 36
         versionCode = 100
         versionName = "1.0.0-hyperos3"
 
@@ -20,6 +20,10 @@ android {
         ndk {
             abiFilters.addAll(setOf("arm64-v8a"))
         }
+    }
+
+    buildFeatures {
+        buildConfig = true // YukiHookAPI 依赖生成 BuildConfig
     }
 
     buildTypes {
@@ -53,14 +57,9 @@ android {
 }
 
 dependencies {
-    // YukiHookAPI (现代 LSPosed 专用响应式 Hook 框架)
     implementation("com.highcapable.yukihookapi:api:1.2.1")
     ksp("com.highcapable.yukihookapi:ksp-xposed:1.2.1")
-
-    // DexKit (应对 HyperOS OTA 混淆类名变动的动态特征搜索引擎)
     implementation("org.luckypray:dexkit:2.0.3")
-
-    // 基础支持库
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.annotation:annotation:1.8.0")
 }
